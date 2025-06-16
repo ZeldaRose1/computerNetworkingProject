@@ -1,0 +1,7 @@
+# Required packages for program
+pynacl
+
+
+# Required packages for testing
+pytest
+spyder-unittest
