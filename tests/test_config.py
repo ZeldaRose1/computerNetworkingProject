@@ -9,6 +9,9 @@ Created on Mon Jun 16 16:47:07 2025
 import os
 from utils.config import Config
 
+# TODO: Write tests to verify read ability of the config file.
+# Specifically with regard to friends public keys and files
+
 
 def test_pass():
     # Ensure folder is clean to start

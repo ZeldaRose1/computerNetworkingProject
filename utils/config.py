@@ -12,7 +12,7 @@ from nacl.public import PrivateKey
 
 
 class Config:
-    def __init__(self, path=os.path.expanduser("~/.conf/sft")):
+    def __init__(self, path=os.path.expanduser("~/.config/sft")):
         """
         Constructor function for Config class. Uses the configparser package
         to manage an ini file. Configuration will be split into individual
@@ -22,7 +22,8 @@ class Config:
         and converted back into byte strings upon reading.
 
         Params:
-            path (str): path to conf folder. Defaults is home/.conf/sft folder
+            path (str): path to conf folder. Defaults is home/.config/sft
+            folder
 
         Returns:
             None
@@ -36,7 +37,12 @@ class Config:
             self.personal.read(os.path.join(path, "personal.ini"))
             self.secret_key = bytes.fromhex(self.personal["p"]["SECRET_KEY"])
             self.public_key = bytes.fromhex(self.personal["p"]["PUBLIC_KEY"])
+            self.default_port = int(self.personal["p"]["DEFAULT_PORT"])
         else:
+            if not os.path.exists(path):
+                # Make subdirectories for the folder
+                os.makedirs(path)
+
             # Create section before adding anything to it.
             self.personal["p"] = {}
 
@@ -48,6 +54,7 @@ class Config:
             self.personal["p"]["PUBLIC_KEY"] = sk.public_key._public_key.hex()
             self.secret_key = sk._private_key
             self.public_key = sk.public_key._public_key
+            self.personal["p"]["DEFAULT_PORT"] = "4144"
             with open(os.path.join(path, "personal.ini"), "w") as f1:
                 self.personal.write(f1)
 
@@ -67,6 +74,23 @@ class Config:
             with open(os.path.join(path, "files.ini"), "w") as f3:
                 self.files.write(f3)
 
+        def __del__(self):
+            """ Destructor for Config class, saves all files before exiting"""
+            save_conf(self)
+
+        def save_conf(self, files="all"):
+            """Save conf without deleting the class"""
+            if files == "all" or files == "personal":
+                with open(os.path.join(path, "personal.ini"), "w") as f1:
+                    self.personal.write(f1)
+
+            if files == "all" or files == "friends":
+                with open(os.path.join(path, "friends.ini"), "w") as f2:
+                    self.friends.write(f2)
+
+            if files == "all" or files == "files":
+                with open(os.path.join(path, "files.ini"), "w") as f3:
+                    self.files.write(f3)
 
 
 if __name__ == "__main__":
