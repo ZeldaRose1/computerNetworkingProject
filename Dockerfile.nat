@@ -1,0 +1,9 @@
+FROM ubuntu:24.04
+
+RUN apt update && apt install -y iproute2 iptables iputils-ping net-tools netcat-traditional curl python3 libsodium23 python3-pip python3-pip-whl python3.12-venv
+
+WORKDIR /app
+COPY requirements_minimal.txt /app/requirements.txt
+RUN pip install --break-system-packages --no-cache-dir -r requirements.txt
+
+CMD ["bash"]
