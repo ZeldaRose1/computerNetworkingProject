@@ -21,7 +21,6 @@ import time
 from utils.config import Config
 from utils.menu import PeerMenu
 
-
 conf = Config()
 
 class Connection:
@@ -117,9 +116,6 @@ class Peer(Connection):
         self.con_out = socket(AF_INET, SOCK_STREAM)
         self.con_out.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
         self.con_out.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1)
-        # self.con_out.bind(("", self.bind_port))
-        # Change socket to non-blocking
-        # self.con_out.setblocking(False)
 
         print("Attempting connection:")
         try:
@@ -135,7 +131,8 @@ class Peer(Connection):
         self._send_with_ack(self.con_out, self.name)
 
         # Start background thread to listen to messages from server
-        threading.Thread(target=self._listen_to_server, daemon=True).start()
+        self.server_thread = threading.Thread(target=self._listen_to_server)
+        self.server_thread.start()
 
         # self.refresh_peer_list()
         return
@@ -182,7 +179,12 @@ class Peer(Connection):
 
                     try:
                         self.peer_socket = self.hole_punch(local_ip, local_port, ip, int(port) + 20)
-                        t = threading
+                        self.peer_thread = threading.Thread(
+                            target=self.handle_thread_to_peer,
+                            args=(self.peer_socket,),
+                            daemon=True
+                        )
+                        self.peer_thread.start()
                         return
                     except Exception as e:
                         print(f"[ERROR] Hole punch failed: {e}")
@@ -209,7 +211,7 @@ class Peer(Connection):
             except Exception as e:
                 print(f"[ERROR] Error receiving from peer: {e}")
 
-    def hole_punch(self, local_ip, local_port, peer_ip, peer_port, timeout=120):
+    def hole_punch(self, local_ip, local_port, peer_ip, peer_port, timeout=20):
         """
         Initiate a hole punch connection to a peer.
         
@@ -268,57 +270,11 @@ class Peer(Connection):
                 if err == 0:
                     print(f"[INFO] Outbound connection established to {peer_ip}:{peer_port}")
                     self.peer_connected = True
-                    
                     return out_sock  # Store the peer socket for later use
                 else:
                     print(f"[ERROR] Outbound connection failed with error: {err}")
                     out_sock.close()
                     del out_sock
-
-    def _attempt_connect(
-            self,
-            dstip: str,
-            dstpt: int,
-            srcpt: int = conf.personal["p"]["DEFAULT_PORT"]
-    ) -> bool:
-        """
-            Helper function of initiate_hole_punch. Attempt connection to
-            outbound port and ip.
-
-            Note, self.con_in is set to listen so we can't use it
-            for the connect function. We need to create a new
-            socket for the outbound connection.
-
-            Params:
-                dstip: IP address to initiate connection with
-                dstpt: Port to send data to
-                srcpt: Port to send data from
-
-            Returns:
-                True if connection was successful, else False
-        """
-        # Create outbound socket
-        self.sock_out = socket(AF_INET, SOCK_STREAM)
-        self.sock_out.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-        # TODO: revert this back to 0.0.0.0 after testing
-        self.sock_out.bind(("0.0.0.0", srcpt + 1000))
-        # self.sock_out.bind(("127.0.0.2", srcpt + 1000))
-        self.sock_out.setblocking(False)
-
-        # Start outbound connection
-        try:
-            print("Attempting outbound connection to port:\t", dstpt)
-            self.sock_out.connect((dstip, dstpt))
-            print("sock_out connected!!")
-            return True
-        except BlockingIOError:
-            # We expected to see an error here so no troubles
-            return False
-        except Exception as e:
-            print(f"Outbound connection failed:\t{e}")
-            self.sock_out.close()
-            del self.sock_out
-            return False
 
     def print_peers(self):
         """Prints the list of available peers."""
@@ -378,19 +334,16 @@ class Peer(Connection):
         self.send(self.con_out, f"REQ_PEER:{peer_name}")
         return
     
-    def handle_thread_to_peer(self):
+    def handle_thread_to_peer(self, conn):
         """Handle incoming messages from the peer."""
-        if not hasattr(self, "peer_socket"):
-            print("[ERROR] No peer socket available.")
-            return
         
         while True:
             try:
-                data = self.peer_socket.recv(4096)
+                data = conn.recv(4096)
                 if not data:
                     print("[INFO] Peer closed connection")
-                    self.peer_socket.close()
-                    del self.peer_socket
+                    conn.close()
+                    del conn
                     break
                 print(f"[PEER] {data.decode(errors='ignore')}")
             except BlockingIOError:
@@ -576,9 +529,6 @@ class Rendezvous(Connection):
         requester_addr = self.client_list[requester][1]
         target_addr = self.client_list[target][1]
 
-        # connections = {requester: requester_conn, target: target_conn}
-        # addrs = {requester: requester_addr, target: target_addr}
-
         session_key = tuple(sorted([requester, target]))
         self.pending_hole_punches[session_key] = set()
 
@@ -586,10 +536,6 @@ class Rendezvous(Connection):
         target_conn.send(f"PREPARE_HOLE_PUNCH:{requester_addr}".encode())
         time.sleep(2)
         requester_conn.send(f"PREPARE_HOLE_PUNCH:{target_addr}".encode())
-        
-        # Step 3: Send both peers the IP and Port of other peer
-        # requester_conn.send(f"START_HOLE_PUNCH:{target_addr[0]},{target_addr[1]}".encode())
-        # target_conn.send(f"START_HOLE_PUNCH:{requester_addr[0]},{requester_addr[1]}".encode())
 
     def mark_peer_ready(self, peer_name):
         """Called when a peer sends READY_HOLE_PUNCH"""
@@ -597,6 +543,7 @@ class Rendezvous(Connection):
         print("DEBUG: mark_peer_ready called for", peer_name)
         for session_key, ready_set in list(self.pending_hole_punches.items()):
             if peer_name in session_key:
+                # with self.lock:
                 ready_set.add(peer_name)
                 if len(ready_set) == 2:
                     # Both ready — send START to both

@@ -38,6 +38,8 @@ class PeerMenu(BaseMenu):
                 print("2. Transfer File to Peer")
                 print("3. Disconnect from Peer")
                 print("4. Disconnect from Server")
+                print("5. Connect to Server")
+                print("6. Exit Program")
                 response = input("Please enter your command:\t")
 
                 match response:
@@ -57,6 +59,13 @@ class PeerMenu(BaseMenu):
                             print("Disconnected from server.")
                         else:
                             print("You are not connected to a server.")
+                    case "5":
+                        ip = input("Enter the server IP address: ")
+                        port = input("Enter the server port: ")
+                        self.peer.connect_to_server(ip, int(port))
+                    case "6":
+                        print("Exiting program.")
+                        break
                     case _:
                         print("Invalid command. Please try again.")
 
