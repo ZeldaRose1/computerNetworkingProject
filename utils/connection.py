@@ -221,23 +221,9 @@ class Peer(Connection):
                 # Prepare for hole punch by creating listening socket
                 elif message.startswith("PREPARE_HOLE_PUNCH:"):
                     # Extract peer info
-                    peer_info = message.split("PREPARE_HOLE_PUNCH:")[1].strip()
-                    print(f"[INFO] Preparing hole punch with peer: {peer_info}")
-                    ip, port = peer_info.split(",")
-
-                    # Listen and out socket port handling
                     local_ip, local_port = self.con_out.getsockname()
-                    print(f"con_out IP: {local_ip}\ncon_out Port: {local_port}")
-                    local_port += 20
-
-                    self.listen_sock = socket(AF_INET, SOCK_STREAM)
-                    self.listen_sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-                    self.listen_sock.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1)
-                    self.listen_sock.bind((local_ip, local_port))
-                    self.listen_sock.listen(200)
-                    self.listen_sock.setblocking(False)
-                    # This will print the local IP
-                    print(f"[INFO] Listening for incoming connections on ({local_ip}, {local_port}")
+                    peer_info = message.split("PREPARE_HOLE_PUNCH:")[1].strip()
+                    ip, port = peer_info.split(",")
 
                     # Notify the user or handle the hole punch logic
                     self.con_out.send("READY_HOLE_PUNCH".encode())
@@ -250,46 +236,79 @@ class Peer(Connection):
                     waiting_for_ack = False
 
                 elif message.startswith("START_HOLE_PUNCH:"):
+                    # Listen and out socket port handling
+                    print(f"con_out IP: {local_ip}\ncon_out Port: {local_port}")
+                    local_port += 20
+
+                    print(f"[INFO] Preparing hole punch with peer: {peer_info}")
+                    self.listen_sock = socket(AF_INET, SOCK_STREAM)
+                    self.listen_sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+                    self.listen_sock.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1)
+                    self.listen_sock.bind((local_ip, local_port))
+                    self.listen_sock.listen(200)
+                    self.listen_sock.setblocking(False)
+                    # This will print the local IP
+                    print(f"[INFO] Listening for incoming connections on ({local_ip}, {local_port}")
+
                     # Extract peer info
                     peer_info = message.split("START_HOLE_PUNCH:")[1].strip()
                     print(f"[INFO] Starting hole punch with peer: {peer_info}")
                     ip, port = peer_info.split(",")
+
+                    # Save time for timeout
                     start_time = time.time()
-                    # Create a new socket for the outbound connection
+
+                    # Loop for connect and accept
                     while time.time() - start_time < 120:  # Retry a few times
+                        # Setup outbound socket
+                        self.out_sock = socket(AF_INET, SOCK_STREAM)
+                        self.out_sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+                        self.out_sock.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1)
+                        self.out_sock.setblocking(False)
+                        self.out_sock.bind((local_ip, local_port))
+                        self.out_sock.setblocking(False)
                         try:
-                            readable, _, _ = select.select([self.listen_sock], [], [], 2)
-                            if self.listen_sock in readable:
-                                conn, addr = self.listen_sock.accept()
-                                print(f"[INFO] Accepted incoming connection from {addr}")
-                                self.peer_socket = conn
-                                break
+                            self.out_sock.connect((ip, int(port) + 20))
                         except BlockingIOError:
                             pass
-                        except Exception as e:
-                            print(f"[ERROR] Error accepting incoming connection: {e}")
+
+                        readable, writable, _ = select.select(
+                            [self.listen_sock],
+                            [self.out_sock],
+                            [],
+                            2
+                        )
+                        
+                        if self.listen_sock in readable:
+                            conn, addr = self.listen_sock.accept()
+                            print(f"[INFO] Accepted incoming connection from {addr}")
+                            self.peer_socket = conn
+                            break
+
+                        if self.out_sock in writable:
+                            err = self.out_sock.getsockopt(SOL_SOCKET, SO_ERROR)
+                            if err == 0:
+                                print(f"[INFO] Outbound connection established to {ip}:{port}")
+                                self.peer_socket = self.out_sock  # Store the peer socket for later use
+                                break
+                            else:
+                                print(f"[ERROR] Outbound connection failed with error: {err}")
+                                self.out_sock.close()
+                                del self.out_sock
 
                         # Attempt outbound connection
-                        try:
-                            self.out_sock = socket(AF_INET, SOCK_STREAM)
-                            self.out_sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-                            self.out_sock.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1)
-                            self.out_sock.setblocking(False)
-                            self.out_sock.bind((local_ip, local_port))
-                            self.out_sock.connect((ip, int(port) + 20))
-                            readable, writable, exception = select.select([self.listen_sock, self.out_sock], [self.listen_sock, self.out_sock], [], 2)
-                            if self.out_sock in writable:
-                                err = self.out_sock.getsockopt(SOL_SOCKET, SO_ERROR)
-                                if err == 0:
-                                    print(f"[INFO] Outbound connection established to {ip}:{port}")
-                                    self.peer_socket = self.out_sock  # Store the peer socket for later use
-                                    break
-                                else:
-                                    print(f"[ERROR] Outbound connection failed with error: {err}")
-
-                        except Exception as e:
-                            print(f"[ERROR] Failed to connect to peer: {e}")
-                            time.sleep(0.5)
+                        # try:
+                            
+                        #     readable, writable, exception = select.select([self.listen_sock, self.out_sock], [self.listen_sock, self.out_sock], [], 2)
+                        #     if self.out_sock in writable:
+                        #         err = self.out_sock.getsockopt(SOL_SOCKET, SO_ERROR)
+                        #         if err == 0:
+                        #             print(f"[INFO] Outbound connection established to {ip}:{port}")
+                        #             self.peer_socket = self.out_sock  # Store the peer socket for later use
+                        #             break
+                        #         else:
+                        #             print(f"[ERROR] Outbound connection failed with error: {err}")
+                        
                     if not hasattr(self, "peer_socket"):
                         print("[ERROR] Failed to establish connection with peer.")
 
