@@ -36,6 +36,7 @@ class PeerMenu(BaseMenu):
             print("3. Disconnect from server")
             print("4. Connect to a specific peer")
             print("5. Exit program")
+            print("6. Manually start a peer")
             response = input("Please enter your command:\t")
 
             match response:
@@ -53,6 +54,11 @@ class PeerMenu(BaseMenu):
                     print("Exiting program.")
                     break
                 case "6":
+                    self_port = input("Enter your port number:\t")
+                    ip = input("Enter peer IP address:\t")
+                    port = int(input("Enter peer port:\t"))
+                    self.peer.manual_start_peer(self_port, ip, port)
+                case "7":
                     # Debug mode
                     while True:
                         try:

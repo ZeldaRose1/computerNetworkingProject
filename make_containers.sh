@@ -81,6 +81,7 @@ fi
 docker network create --subnet=192.168.10.0/24 net1
 docker network create --subnet=192.168.20.0/24 net2
 docker network create --subnet=10.0.0.0/24 pubnet
+# docker network create -d macvlan --subnet=10.0.0.0/24 --gateway=192.168.0.1 -o parent=eth0 pubnet
 
 # Build natbox
 docker build -f "./Dockerfile.nat" -t natbox . 
@@ -99,6 +100,24 @@ docker network connect --ip 10.0.0.3 pubnet nat2
 docker exec nat1 iptables -t nat -A POSTROUTING -o eth1 -j MASQUERADE # This entered docker's CLI
 docker exec nat2 iptables -t nat -A POSTROUTING -o eth1 -j MASQUERADE # This entered docker's CLI
 
+#### Added on 12 Aug 2025 from ChatGPT 5
+docker exec nat1 iptables -A FORWARD -i eth1 -o eth0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+docker exec nat1 iptables -A FORWARD -i eth0 -o eth1 -j ACCEPT
+docker exec nat1 iptables -t nat -A PREROUTING -i eth1 -p tcp --dport 5000 -j DNAT --to-destination 192.168.10.101:5000
+
+docker exec nat2 iptables -A FORWARD -i eth1 -o eth0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+docker exec nat2 iptables -A FORWARD -i eth0 -o eth1 -j ACCEPT
+docker exec nat2 iptables -t nat -A PREROUTING -i eth1 -p tcp --dport 5000 -j DNAT --to-destination 192.168.20.202:5000
+
+docker exec nat1 sysctl -w net.ipv4.ip_forward=1
+docker exec nat2 sysctl -w net.ipv4.ip_forward=1
+
+docker exec nat1 iptables -A FORWARD -i eth0 -o eth1 -j ACCEPT
+docker exec nat1 iptables -A FORWARD -i eth1 -o eth0 -j ACCEPT
+docker exec nat2 iptables -A FORWARD -i eth0 -o eth1 -j ACCEPT
+docker exec nat2 iptables -A FORWARD -i eth1 -o eth0 -j ACCEPT
+
+####
 
 # Setup Clients for testing
 docker run -dit --name client1 --cap-add=NET_ADMIN --network net1 -v /data/Books/school/summer2025/computer_networking/project/code:/code --ip 192.168.10.101 natbox
