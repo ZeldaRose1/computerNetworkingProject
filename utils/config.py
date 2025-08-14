@@ -28,13 +28,16 @@ class Config:
         Returns:
             None
         """
+        self.path = path
+
         self.personal = configparser.ConfigParser()
         self.friends = configparser.ConfigParser()
         self.files = configparser.ConfigParser()
 
         # Setup personal setting file
-        if os.path.exists(os.path.join(path, "personal.ini")):
-            self.personal.read(os.path.join(path, "personal.ini"))
+        if os.path.exists(os.path.join(self.path, "personal.ini")):
+            # Load attributes
+            self.personal.read(os.path.join(self.path, "personal.ini"))
             self.secret_key = bytes.fromhex(self.personal["p"]["SECRET_KEY"])
             self.public_key = bytes.fromhex(self.personal["p"]["PUBLIC_KEY"])
             self.default_port = int(self.personal["p"]["DEFAULT_PORT"])
@@ -54,7 +57,7 @@ class Config:
             self.personal["p"]["PUBLIC_KEY"] = sk.public_key._public_key.hex()
             self.secret_key = sk._private_key
             self.public_key = sk.public_key._public_key
-            self.personal["p"]["DEFAULT_PORT"] = "4144"
+            self.personal["p"]["DEFAULT_PORT"] = "5000"
             with open(os.path.join(path, "personal.ini"), "w") as f1:
                 self.personal.write(f1)
 
@@ -73,24 +76,84 @@ class Config:
         else:
             with open(os.path.join(path, "files.ini"), "w") as f3:
                 self.files.write(f3)
+        
+    def get_username(self):
+        """Get the username from the personal config."""
+        try:
+            return self.personal["p"]["USERNAME"]
+        except KeyError:
+            un = input("Enter your username: ")
+            self.personal["p"]["USERNAME"] = un
+            self.save_conf("personal")
+            return un
+    
+    def save_friend(
+            self,
+            friend_name: str,
+            friend_ip: str,
+            friend_port: int,
+            friend_public_key: str
+        ) -> None:
+        """
+        Save a friend's information to the friends config file.
+        
+        Params:
+            friend_name (str): The name of the friend.
+            friend_ip (str): The IP address of the friend.
+            friend_port (int): The port number of the friend.
+            friend_public_key (str): The public key of the friend in hex format.
+        
+        Returns:
+            None
+        """
+        if self.friends.has_section(friend_name):
+            print("Friend already exists: Updating data")
+        else:
+            self.friends[friend_name] = {}
 
-        def __del__(self):
-            """ Destructor for Config class, saves all files before exiting"""
-            save_conf(self)
+        self.friends[friend_name]["IP"] = friend_ip
+        self.friends[friend_name]["PORT"] = str(friend_port)
+        self.friends[friend_name]["PUBLIC_KEY"] = friend_public_key
+        
+        self.save_conf("friends")
+        return
+    
+    def print_friends(self) -> None:
+        """Print the list of friends from the config file."""
+        if not self.friends.sections():
+            print("No friends found.")
+            return
+        
+        print("\n--- Friends List ---")
+        for friend in self.friends.sections():
+            ip = self.friends[friend].get("IP", "Unknown IP")
+            port = self.friends[friend].get("PORT", "Unknown Port")
+            print(f"Name: {friend}, IP: {ip}, Port: {port}")
+        print("---------------------\n")
+        return
 
-        def save_conf(self, files="all"):
-            """Save conf without deleting the class"""
-            if files == "all" or files == "personal":
-                with open(os.path.join(path, "personal.ini"), "w") as f1:
-                    self.personal.write(f1)
+    def __del__(self):
+        """ Destructor for Config class, saves all files before exiting"""
+        self.save_conf(self)
 
-            if files == "all" or files == "friends":
-                with open(os.path.join(path, "friends.ini"), "w") as f2:
-                    self.friends.write(f2)
+    def save_conf(self, files="all"):
+        """Save conf without deleting the class"""
+        # Verify folder exists
+        if not os.path.isdir(self.path):
+            os.makedirs(self.path)
 
-            if files == "all" or files == "files":
-                with open(os.path.join(path, "files.ini"), "w") as f3:
-                    self.files.write(f3)
+        # Save files based on input
+        if files == "all" or files == "personal":
+            with open(os.path.join(self.path, "personal.ini"), "w") as f1:
+                self.personal.write(f1)
+
+        if files == "all" or files == "friends":
+            with open(os.path.join(self.path, "friends.ini"), "w") as f2:
+                self.friends.write(f2)
+
+        if files == "all" or files == "files":
+            with open(os.path.join(self.path, "files.ini"), "w") as f3:
+                self.files.write(f3)
 
 
 if __name__ == "__main__":

@@ -20,6 +20,7 @@ import time
 # from models.friend import Friend
 from utils.config import Config
 from utils.menu import PeerMenu
+from models.file import File
 
 conf = Config()
 
@@ -83,6 +84,7 @@ class Peer(Connection):
 
     def __init__(self):
         """Constructor for the connection manager"""
+        self.config = Config()
         self.peer_connected = False
         self.server_connected = False
 
@@ -106,8 +108,7 @@ class Peer(Connection):
 
     def connect_to_server(self, dst_ip: str, dst_port: int) -> None:
         """Attempt outbound connection to given IP and port"""
-        if not hasattr(self, "name"):
-            self.name = input("Please input name you wish to be known by:")
+        self.name = conf.get_username()
         
         if not hasattr(self, "bind_port"):
             self.bind_port = int(conf.personal["p"]["DEFAULT_PORT"])
@@ -131,7 +132,7 @@ class Peer(Connection):
         self._send_with_ack(self.con_out, self.name)
 
         # Start background thread to listen to messages from server
-        self.server_thread = threading.Thread(target=self._listen_to_server)
+        self.server_thread = threading.Thread(target=self._listen_to_server, daemon=True)
         self.server_thread.start()
 
         # self.refresh_peer_list()
@@ -185,6 +186,8 @@ class Peer(Connection):
                             daemon=True
                         )
                         self.peer_thread.start()
+                        time.sleep(2)
+                        self.peer_socket.sendall(f"[FRIEND]:{self.name},{conf.personal['p']['PUBLIC_KEY']}".encode())
                         return
                     except Exception as e:
                         print(f"[ERROR] Hole punch failed: {e}")
@@ -331,7 +334,8 @@ class Peer(Connection):
     def connect_to_peer(self, peer_name: str):
         """Coordinate with the server and attempt a TCP hole punch."""
         print(f"[INFO] Requesting connection to {peer_name}")
-        self.send(self.con_out, f"REQ_PEER:{peer_name}")
+        # self.send(self.con_out, f"REQ_PEER:{peer_name}")
+        self.con_out.send(f"REQ_PEER:{peer_name}".encode())
         return
     
     def handle_thread_to_peer(self, conn):
@@ -345,12 +349,31 @@ class Peer(Connection):
                     conn.close()
                     del conn
                     break
-                print(f"[PEER] {data.decode(errors='ignore')}")
+                elif data.decode(errors='ignore').strip().startswith("[FRIEND]:"):
+                    # Handle friend request
+                    dat = data.decode(errors='ignore').strip().split(":")[1]
+                    ip, pt = conn.getpeername()
+                    pt = int(pt)
+                    un, pubkey = dat.split(",")
+                    self.save_friend(un, ip, pt, pubkey)
+                else:
+                    print(f"[PEER] {data.decode(errors='ignore')}")
+                    
             except BlockingIOError:
                 pass
             except Exception as e:
                 print(f"[ERROR] Error receiving from peer: {e}")
                 break
+    
+    ## Start of Peer-to-Peer functions
+    def save_friend(self, username: str, ip: str, pt: int, pubkey: bytes|str) -> None:
+        """
+        Save a friend's information to the config.
+        To be run at the start of a connection.
+        """
+        self.config.save_friend(username, ip, pt, pubkey)
+        print(f"[INFO] Friend saved: {username} @ {ip}:{pt}")
+        return
 
     def __del__(self):
         """Destructor; Close connections and clear ports"""

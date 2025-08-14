@@ -32,14 +32,19 @@ class PeerMenu(BaseMenu):
             if hasattr(self.peer, 'peer_socket'):
                 self.peer.peer_connected = True
 
+            ############################
+            ##### Peer - Peer Menu #####
+            ############################
             if self.peer.peer_connected:
                 print("\n--- Peer-Peer Menu ---")
                 print("1. Send Message to Peer")
                 print("2. Transfer File to Peer")
-                print("3. Disconnect from Peer")
-                print("4. Disconnect from Server")
-                print("5. Connect to Server")
-                print("6. Exit Program")
+                print("3. Save Peer")
+                print("4. Disconnect from Peer")
+                print("5. Disconnect from Server")
+                print("6. Connect to Server")
+                print("7. Print Friends List")
+                print("8. Exit Program")
                 response = input("Please enter your command:\t")
 
                 match response:
@@ -50,33 +55,41 @@ class PeerMenu(BaseMenu):
                         file_path = input("Enter the path to the file to send: ")
                         self.peer.transfer_file(file_path)
                     case "3":
+                        self.peer.save_peer()
+                    case "4":
                         self.peer.peer_socket.close()
                         del self.peer.peer_socket
                         print("Disconnected from peer.")
-                    case "4":
+                    case "5":
                         if self.peer.server_connected:
                             self.peer.disconnect_from_server()
                             print("Disconnected from server.")
                         else:
                             print("You are not connected to a server.")
-                    case "5":
+                    case "6":
                         ip = input("Enter the server IP address: ")
                         port = input("Enter the server port: ")
                         self.peer.connect_to_server(ip, int(port))
-                    case "6":
+                    case "7":
+                        self.peer.config.print_friends()
+                    case "8":
                         print("Exiting program.")
                         break
                     case _:
                         print("Invalid command. Please try again.")
 
+            ##############################
+            ##### Peer - Server Menu #####
+            ##############################
             elif self.peer.server_connected:
                 print("\n--- Peer-Server Menu ---")
-                print("1. Print list of peers")
+                print("1. Print peers on server")
                 print("2. Refresh peer list from server")
                 print("3. Disconnect from server")
                 print("4. Connect to a specific peer")
                 print("5. Exit program")
-                print("6. Manually start a peer")
+                print("6. Debug Mode")
+                print("7. Print Friends List")
                 response = input("Please enter your command:\t")
 
                 match response:
@@ -103,13 +116,19 @@ class PeerMenu(BaseMenu):
                                 exec(inp)
                             except Exception as e:
                                 print(f"Error executing code: {e}")
+                    case "7":
+                        self.peer.config.print_friends()
                     case _:
                         print("Invalid command. Please try again.")
-            # No Connection
+
+            #####################################
+            ##### Peer - No Connection Menu #####
+            #####################################
             else:
                 print("\n--- No Connection ---")
                 print("1. Connect to Rendezvous Server")
                 print("2. Manual Connect to Peer")
+                print("3. Print Friends List")
                 print("3. Exit Program")
                 response = input("Please enter your command:\t")
 
@@ -125,6 +144,8 @@ class PeerMenu(BaseMenu):
                         peer_port = input("Enter the peer's port: ")
                         self.peer.peer_socket = self.peer.hole_punch(local_ip, int(local_port), peer_ip, int(peer_port))
                     case "3":
+                        self.peer.config.print_friends()
+                    case "4":
                         print("Exiting program.")
                         break
                     case _:
