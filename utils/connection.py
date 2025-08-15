@@ -6,6 +6,7 @@ Created on Thu Jun 19 08:14:37 2025
 @author: zelda
 """
 
+import os
 import select
 from socket import socket
 from socket import AF_INET
@@ -349,15 +350,22 @@ class Peer(Connection):
                     conn.close()
                     del conn
                     break
-                elif data.decode(errors='ignore').strip().startswith("[FRIEND]:"):
+                else:
+                    data = data.decode(errors="ignore")
+                
+                if data.strip().startswith("[FRIEND]:"):
                     # Handle friend request
-                    dat = data.decode(errors='ignore').strip().split(":")[1]
+                    dat = data.strip().split(":")[1]
                     ip, pt = conn.getpeername()
                     pt = int(pt)
                     un, pubkey = dat.split(",")
                     self.save_friend(un, ip, pt, pubkey)
+                    print(f"[DEBUG]: {un} has public key (hex):\n{pubkey}")
+
+                elif data.strip().startswith("[FILE_CHUNK]:"):
+                    self.handle_received_file_chunk(data)
                 else:
-                    print(f"[PEER] {data.decode(errors='ignore')}")
+                    print(f"[PEER] {data}")
                     
             except BlockingIOError:
                 pass
@@ -372,8 +380,119 @@ class Peer(Connection):
         To be run at the start of a connection.
         """
         self.config.save_friend(username, ip, pt, pubkey)
+        self.friend_un = username
         print(f"[INFO] Friend saved: {username} @ {ip}:{pt}")
         return
+
+    def send_file(self, filepath: str) -> None:
+        """
+        Send a file to the connected peer.
+        
+        Params:
+            filepath (str): Path to the file to be sent.
+        
+        Returns:
+            None
+        """
+        # Validate file path
+        if not os.path.isfile(filepath):
+            print(f"[ERROR] File not found: {filepath}")
+            return
+
+        # Lookup peer's key based on ip and port
+        for user in self.config.friends.sections():
+            if self.config.friends[user]["IP"] == self.peer_socket.getpeername()[0] and \
+               self.config.friends[user]["PORT"] == str(self.peer_socket.getpeername()[1]):
+                friend_name = user
+                peer_key = self.config.friends[user]["PUBLIC_KEY"]
+                peer_key = peer_key
+                break
+        
+        # Check configuration to see if part of the file has been sent
+        file_to_send = self.config.load_file(filepath, friend_name)
+        start_chunk = self.config.files[file_to_send.path].get("LAST_CHUNK_SENT", 0)
+        # print(f"DEBUG: start_chunk = {start_chunk}")
+        # print(f"DEBUG: highest_chunk = {file_to_send.greatest_chunk}")
+
+        # Loop over all chunks that still need to be sent
+        for i in range(int(start_chunk), int(file_to_send.greatest_chunk)):
+            # print(f"[DEBUG]: Public_key (hex):\t {peer_key}")
+            # print(f"[DEBUG]: Public_key (bytes):\t {bytes.fromhex(peer_key)}")
+            # print(f"[DEBUG]: Secret_key (bytes):\t {conf.secret_key.encode()}")
+            # print(f"[DEBUG]: Secret_key (hex):\t {conf.secret_key.encode().hex()}")
+            # break
+            chunk = file_to_send.get_chunk(i)
+            encrypted_chunk = file_to_send.encrypt_bytes(
+                private_key=conf.secret_key,
+                public_key=bytes.fromhex(peer_key),
+                data=chunk
+            )
+            header = f"[FILE_CHUNK]:{file_to_send.name},{i + 1},{file_to_send.greatest_chunk},".encode()
+            payload = header + encrypted_chunk.encode()
+            while True:
+                try:
+                    self.peer_socket.sendall(payload)
+                    print(f"[INFO] Sent chunk {i + 1}/{file_to_send.greatest_chunk} of {file_to_send.name}")
+                    break
+                except Exception as e:
+                    print(f"[ERROR] Failed to send chunk {i}: {e}")
+                    if i > 0:
+                        self.config.files[file_to_send.path]["LAST_CHUNK_SENT"] = str(i - 1)
+                        self.config.save_conf("files")
+                time.sleep(0.5)
+
+        # Loop is over
+        print(f"[INFO] File {file_to_send.name} sent successfully.")
+        return
+    
+    def handle_received_file_chunk(self, data: bytes) -> None:
+        """
+        Handle a received file chunk from the peer.
+        
+        Params:
+            data (bytes): The received data containing the file chunk.
+        
+        Returns:
+            None
+        """
+        try:
+            print("[DEBUG]: handle_recieved_file_chunk called")
+            file_name, chunk_number, total_chunks, encrypted_chunk = data.split(",", 3)
+            callsign, file_name = file_name.split(":")
+            if callsign != "[FILE_CHUNK]":
+                print("[ERROR] Invalid file chunk header.")
+                return
+            
+            # print(f"[DEBUG]: callsign: {callsign}")
+            # print(f"[DEBUG]: file_name: {file_name}")
+            # print(f"[DEBUG]: chunk_number: {chunk_number}")
+            # print(f"[DEBUG]: total_chunks: {total_chunks}")
+
+            # Load file into working memory
+            # print("[DEBUG]: Loading file")
+            if chunk_number == 0:
+                # Load or create the file object
+                recv_file = self.config.load_file(file_name, self.name, new_file=True)
+            else:
+                recv_file = self.config.load_file(file_name, self.name, new_file=False)
+
+            # Decrypt the chunk
+            print("[DEBUG]: Decrypting file")
+            decrypted_chunk = recv_file.decrypt(
+                secret_key=self.config.personal["p"]["SECRET_KEY"],
+                public_key=self.config.friends[self.friend_un]["PUBLIC_KEY"],
+                data=encrypted_chunk
+            )
+
+            # Save the chunk to a file
+            print("[DEBUG]: Opening and writing saved file")
+            with open(file_name, "ab") as f:
+                f.write(decrypted_chunk)
+
+            print(f"[INFO] Received chunk {chunk_number}/{total_chunks} of {file_name}")
+
+        except Exception as e:
+            print(f"[ERROR] Failed to handle received file chunk: {e}")
 
     def __del__(self):
         """Destructor; Close connections and clear ports"""

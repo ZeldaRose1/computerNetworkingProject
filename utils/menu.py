@@ -53,7 +53,7 @@ class PeerMenu(BaseMenu):
                         self.peer.peer_socket.sendall(message.encode())
                     case "2":
                         file_path = input("Enter the path to the file to send: ")
-                        self.peer.transfer_file(file_path)
+                        self.peer.send_file(file_path)
                     case "3":
                         self.peer.save_peer()
                     case "4":
